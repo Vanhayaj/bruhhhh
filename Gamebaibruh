@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trò Chơi Đánh Bài</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #228B22;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .deck {
+            font-size: 24px;
+            margin: 20px;
+            min-height: 50px;
+            border: 2px solid white;
+            padding: 10px;
+            background-color: #90EE90;
+            color: black;
+            border-radius: 10px;
+        }
+        .hands {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+        }
+        .hand {
+            border: 2px solid white;
+            padding: 10px;
+            border-radius: 10px;
+            min-width: 300px;
+        }
+        .player-hand {
+            background-color: #4169E1;
+        }
+        .bot-hand {
+            background-color: #DC143C;
+        }
+        .cards {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        .card {
+            width: 50px;
+            height: 70px;
+            background-color: white;
+            color: black;
+            border: 1px solid black;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+        }
+        .card.selected {
+            background-color: yellow;
+            border: 2px solid red;
+        }
+        .card.bot-card {
+            background-color: #gray;
+            color: #gray;
+            cursor: default;
+        }
+        .controls {
+            margin: 20px;
+        }
+        button {
+            font-size: 18px;
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #FFD700;
+            color: black;
+        }
+        button:hover {
+            background-color: #FFA500;
+        }
+        button:disabled {
+            background-color: #gray;
+            cursor: not-allowed;
+        }
+        #status {
+            font-size: 20px;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Trò Chơi Đánh Bài</h1>
+        <div id="start-screen">
+            <button id="startBtn">Start</button>
+            <button id="cheatBtn">Start with cheat</button>
+        </div>
+        <div id="game-screen" style="display: none;">
+            <div id="status">Trò chơi bắt đầu!</div>
+            <div class="deck" id="deck">Deck: Chưa có bài</div>
+            <div class="hands">
+                <div class="hand player-hand">
+                    <h3>Tay Player</h3>
+                    <div class="cards" id="playerCards"></div>
+                </div>
+                <div class="hand bot-hand">
+                    <h3>Tay Bot (<span id="botCount">13</span> lá)</h3>
+                    <div class="cards" id="botCards"></div>
+                </div>
+            </div>
+            <div class="controls">
+                <button id="hitBtn" disabled>Hit</button>
+                <button id="passBtn" disabled>Pass</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Khởi tạo
+        const ranks = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+        const values = [3,4,5,6,7,8,9,10,11,12,13,14,15];
+        let rankToValue = {};
+        ranks.forEach((rank, i) => rankToValue[rank] = values[i]);
+
+        let playerHand = [];
+        let botHand = [];
+        let deck = null; // { cards: [], totalValue: 0 }
+        let turn = false; // true: player, false: bot
+        let pPass = false;
+        let bPass = false;
+        let selectedCards = []; // indices in playerHand for selected
+
+        // Tạo bộ bài đầy đủ (52 lá: 4 mỗi rank)
+        function createDeck() {
+            let fullDeck = [];
+            for (let i = 0; i < 4; i++) {
+                ranks.forEach(rank => {
+                    fullDeck.push({ rank, value: rankToValue[rank] });
+                });
+            }
+            return fullDeck;
+        }
+
+        // Shuffle array
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // Render player hand
+        function renderPlayerHand() {
+            const container = document.getElementById('playerCards');
+            container.innerHTML = '';
+            playerHand.forEach((card, index) => {
+                const div = document.createElement('div');
+                div.className = `card ${selectedCards.includes(index) ? 'selected' : ''}`;
+                div.textContent = card.rank;
+                div.onclick = () => toggleSelect(index);
+                container.appendChild(div);
+            });
+        }
+
+        // Render bot hand (only count, show dummy cards)
+        function renderBotHand() {
+            document.getElementById('botCount').textContent = botHand.length;
+            const container = document.getElementById('botCards');
+            container.innerHTML = '';
+            for (let i = 0; i < botHand.length; i++) {
+                const div = document.createElement('div');
+                div.className = 'card bot-card';
+                div.textContent = '?';
+                container.appendChild(div);
+            }
+        }
+
+        // Render deck
+        function renderDeck() {
+            const deckEl = document.getElementById('deck');
+            if (!deck || deck.cards.length === 0) {
+                deckEl.textContent = 'Deck: Chưa có bài';
+                return;
+            }
+            const rank = deck.cards[0].rank;
+            const count = deck.cards.length;
+            const total = deck.totalValue;
+            deckEl.innerHTML = `Deck: ${count}x ${rank} (Tổng: ${total})`;
+        }
+
+        // Toggle select for player card
+        function toggleSelect(index) {
+            if (!turn) return;
+            const idx = selectedCards.indexOf(index);
+            if (idx > -1) {
+                selectedCards.splice(idx, 1);
+            } else {
+                // Check if same rank as already selected
+                if (selectedCards.length > 0) {
+                    const firstSelected = playerHand[selectedCards[0]];
+                    if (firstSelected.rank !== playerHand[index].rank) {
+                        alert('Chỉ có thể chọn các lá cùng giá trị!');
+                        return;
+                    }
+                }
+                selectedCards.push(index);
+            }
+            renderPlayerHand();
+            updateHitButton();
+        }
+
+        // Update hit button
+        function updateHitButton() {
+            const btn = document.getElementById('hitBtn');
+            if (!turn || selectedCards.length === 0) {
+                btn.disabled = true;
+                return;
+            }
+            const selected = selectedCards.map(i => playerHand[i]);
+            const totalVal = selected.reduce((sum, c) => sum + c.value, 0);
+            const canHit = !deck || totalVal >= deck.totalValue;
+            btn.disabled = !canHit;
+            btn.textContent = canHit ? 'Hit' : 'Không thể đánh (quá nhỏ)';
+        }
+
+        // Player hit
+        function playerHit() {
+            if (selectedCards.length === 0) return;
+            const selected = selectedCards.map(i => playerHand[i]).sort((a,b) => a.rank.localeCompare(b.rank)); // Sort for display
+            const totalVal = selected.reduce((sum, c) => sum + c.value, 0);
+            // Remove from hand
+            selectedCards.sort((a,b) => b - a); // Reverse to splice correctly
+            selectedCards.forEach(idx => playerHand.splice(idx, 1));
+            // Set deck
+            deck = { cards: selected, totalValue: totalVal };
+            selectedCards = [];
+            pPass = false;
+            turn = false;
+            renderPlayerHand();
+            renderDeck();
+            document.getElementById('status').textContent = 'Lượt Bot';
+            setTimeout(botTurn, 1000); // Delay for UX
+            checkWin();
+        }
+
+        // Player pass
+        function playerPass() {
+            pPass = true;
+            turn = false;
+            document.getElementById('status').textContent = 'Bạn pass. Lượt Bot';
+            document.getElementById('hitBtn').disabled = true;
+            document.getElementById('passBtn').disabled = true;
+            selectedCards = [];
+            renderPlayerHand();
+            setTimeout(botTurn, 500);
+        }
+
+        // Bot AI: Find best combo to beat deck
+        function botAI() {
+            // Find all possible combos (groups of same rank)
+            const rankGroups = {};
+            botHand.forEach((card, idx) => {
+                if (!rankGroups[card.rank]) rankGroups[card.rank] = [];
+                rankGroups[card.rank].push(idx);
+            });
+
+            let bestCombo = null;
+            let bestTotal = 0;
+
+            // Try largest possible combo first
+            const sortedRanks = Object.keys(rankGroups).sort((a,b) => rankToValue[b] - rankToValue[a]);
+            for (let rank of sortedRanks) {
+                const group = rankGroups[rank];
+                const val = rankToValue[rank];
+                for (let size = group.length; size >= 1; size--) {
+                    const total = size * val;
+                    if (!deck || total >= deck.totalValue) {
+                        if (total > bestTotal) {
+                            bestTotal = total;
+                            bestCombo = group.slice(0, size);
+                        }
+                    }
+                }
+            }
+
+            if (bestCombo && bestCombo.length > 0) {
+                // Sort indices descending for safe splice
+                bestCombo.sort((a,b) => b - a);
+                // Collect selected cards
+                const botSelected = [];
+                bestCombo.forEach(idx => {
+                    botSelected.push(botHand[idx]);
+                });
+                // Remove from hand
+                bestCombo.forEach(idx => botHand.splice(idx, 1));
+                // Sort selected for display (optional)
+                botSelected.sort((a,b) => a.rank.localeCompare(b.rank));
+                deck = { cards: botSelected, totalValue: bestTotal };
+                bPass = false;
+                turn = true;
+                renderBotHand();
+                renderDeck();
+                document.getElementById('status').textContent = 'Bot đánh. Lượt bạn';
+                document.getElementById('hitBtn').disabled = false;
+                document.getElementById('passBtn').disabled = false;
+                updateHitButton();
+                checkWin();
+                return true;
+            } else {
+                // Cannot hit
+                return false;
+            }
+        }
+
+        // Bot turn
+        function botTurn() {
+            if (pPass && bPass) {
+                // Both pass, clear deck
+                deck = null;
+                pPass = false;
+                bPass = false;
+                turn = true;
+                renderDeck();
+                document.getElementById('status').textContent = 'Cả hai pass. Clear deck. Lượt bạn';
+                document.getElementById('hitBtn').disabled = false;
+                document.getElementById('passBtn').disabled = false;
+                updateHitButton();
+                return;
+            }
+
+            bPass = !botAI(); // If cannot hit, pass
+            if (bPass) {
+                document.getElementById('status').textContent = 'Bot pass. Lượt bạn';
+                turn = true;
+                document.getElementById('hitBtn').disabled = false;
+                document.getElementById('passBtn').disabled = false;
+                setTimeout(() => updateHitButton(), 500);
+            }
+        }
+
+        // Check win condition
+        function checkWin() {
+            if (playerHand.length === 0) {
+                alert('Bạn thắng!');
+                location.reload();
+            } else if (botHand.length === 0) {
+                alert('Bot thắng!');
+                location.reload();
+            }
+        }
+
+        // Start game
+        function startGame(cheat = false) {
+            document.getElementById('start-screen').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'block';
+            let fullDeck;
+
+            if (cheat) {
+                // Cheat mode: Player gets all 4 twos + 9 random non-twos
+                fullDeck = shuffle(createDeck());
+                let allTwos = fullDeck.filter(c => c.rank === '2');
+                playerHand = allTwos; // Exactly 4 twos
+                fullDeck = fullDeck.filter(c => c.rank !== '2');
+                shuffle(fullDeck); // Shuffle the 48 non-two cards
+                botHand = fullDeck.splice(0, 13);
+                let random9 = fullDeck.splice(0, 9);
+                playerHand = [...playerHand, ...random9];
+            } else {
+                // Normal mode
+                fullDeck = shuffle(createDeck());
+                botHand = fullDeck.splice(0, 13);
+                playerHand = fullDeck.splice(0, 13);
+            }
+
+            deck = null;
+            turn = true;
+            pPass = false;
+            bPass = false;
+            selectedCards = [];
+            renderPlayerHand();
+            renderBotHand();
+            renderDeck();
+            document.getElementById('status').textContent = 'Lượt bạn. Chọn bài để đánh.';
+            document.getElementById('hitBtn').disabled = true;
+            document.getElementById('passBtn').disabled = false;
+            document.getElementById('passBtn').onclick = playerPass;
+            document.getElementById('hitBtn').onclick = playerHit;
+        }
+
+        // Event listeners
+        document.getElementById('startBtn').onclick = () => startGame(false);
+        document.getElementById('cheatBtn').onclick = () => startGame(true);
+    </script>
+</body>
+</html>
