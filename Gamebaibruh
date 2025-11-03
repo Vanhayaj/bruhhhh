@@ -201,6 +201,22 @@
             deckEl.innerHTML = `Deck: ${count}x ${rank} (Tổng: ${total})`;
         }
 
+        // Kiểm tra combo hợp lệ: cùng rank hoặc thẳng tăng dần
+        function isValidCombo(cards) {
+            if (cards.length === 0) return false;
+            const ranks = cards.map(c => c.rank);
+            const sortedValues = cards.map(c => c.value).sort((a, b) => a - b);
+            // Kiểm tra cùng rank
+            if (ranks.every(r => r === ranks[0])) return true;
+            // Kiểm tra thẳng: giá trị unique và liên tiếp
+            const uniqueVals = [...new Set(sortedValues)];
+            if (uniqueVals.length !== sortedValues.length || uniqueVals.length < 2) return false;
+            for (let i = 1; i < uniqueVals.length; i++) {
+                if (uniqueVals[i] !== uniqueVals[i - 1] + 1) return false;
+            }
+            return true;
+        }
+
         // Toggle select for player card
         function toggleSelect(index) {
             if (!turn) return;
@@ -208,14 +224,6 @@
             if (idx > -1) {
                 selectedCards.splice(idx, 1);
             } else {
-                // Check if same rank as already selected
-                if (selectedCards.length > 0) {
-                    const firstSelected = playerHand[selectedCards[0]];
-                    if (firstSelected.rank !== playerHand[index].rank) {
-                        alert('Chỉ có thể chọn các lá cùng giá trị!');
-                        return;
-                    }
-                }
                 selectedCards.push(index);
             }
             renderPlayerHand();
@@ -227,19 +235,25 @@
             const btn = document.getElementById('hitBtn');
             if (!turn || selectedCards.length === 0) {
                 btn.disabled = true;
+                btn.textContent = 'Hit';
                 return;
             }
             const selected = selectedCards.map(i => playerHand[i]);
             const totalVal = selected.reduce((sum, c) => sum + c.value, 0);
-            const canHit = !deck || totalVal >= deck.totalValue;
+            const validCombo = isValidCombo(selected);
+            const canHit = !deck || (validCombo && totalVal >= deck.totalValue);
             btn.disabled = !canHit;
-            btn.textContent = canHit ? 'Hit' : 'Không thể đánh (quá nhỏ)';
+            if (!validCombo) {
+                btn.textContent = 'Combo không hợp lệ';
+            } else {
+                btn.textContent = canHit ? 'Hit' : 'Không thể đánh (quá nhỏ)';
+            }
         }
 
         // Player hit
         function playerHit() {
             if (selectedCards.length === 0) return;
-            const selected = selectedCards.map(i => playerHand[i]).sort((a,b) => a.rank.localeCompare(b.rank)); // Sort for display
+            const selected = selectedCards.map(i => playerHand[i]).sort((a,b) => a.value - b.value); // Sort by value for display
             const totalVal = selected.reduce((sum, c) => sum + c.value, 0);
             // Remove from hand
             selectedCards.sort((a,b) => b - a); // Reverse to splice correctly
@@ -268,29 +282,58 @@
             setTimeout(botTurn, 500);
         }
 
-        // Bot AI: Find best combo to beat deck
+        // Bot AI: Find best combo to beat deck (same rank or straight)
         function botAI() {
-            // Find all possible combos (groups of same rank)
+            const minTotal = deck ? deck.totalValue : 0;
+            let bestCombo = null;
+            let bestTotal = 0;
+            let isStraight = false;
+
+            // First, try same rank groups (existing logic)
             const rankGroups = {};
             botHand.forEach((card, idx) => {
                 if (!rankGroups[card.rank]) rankGroups[card.rank] = [];
                 rankGroups[card.rank].push(idx);
             });
-
-            let bestCombo = null;
-            let bestTotal = 0;
-
-            // Try largest possible combo first
             const sortedRanks = Object.keys(rankGroups).sort((a,b) => rankToValue[b] - rankToValue[a]);
             for (let rank of sortedRanks) {
                 const group = rankGroups[rank];
                 const val = rankToValue[rank];
                 for (let size = group.length; size >= 1; size--) {
                     const total = size * val;
-                    if (!deck || total >= deck.totalValue) {
-                        if (total > bestTotal) {
-                            bestTotal = total;
-                            bestCombo = group.slice(0, size);
+                    if (total >= minTotal && total > bestTotal) {
+                        bestTotal = total;
+                        bestCombo = group.slice(0, size);
+                        isStraight = false;
+                    }
+                }
+            }
+
+            // If no same rank works or to find better, try straights
+            if (minTotal > 0) { // Only if there's a deck to beat
+                const valueMap = {};
+                botHand.forEach((card, idx) => {
+                    if (!valueMap[card.value]) valueMap[card.value] = [];
+                    valueMap[card.value].push(idx);
+                });
+                const sortedValues = Object.keys(valueMap).map(Number).sort((a,b) => a - b);
+                for (let start = 0; start < sortedValues.length; start++) {
+                    for (let end = start + 1; end < sortedValues.length; end++) { // At least length 2
+                        const len = end - start + 1;
+                        const expectedEnd = sortedValues[start] + len - 1;
+                        if (sortedValues[end] === expectedEnd) {
+                            const total = sortedValues.slice(start, end + 1).reduce((s, v) => s + v, 0);
+                            if (total >= minTotal && total > bestTotal) {
+                                bestTotal = total;
+                                bestCombo = [];
+                                for (let k = start; k <= end; k++) {
+                                    const val = sortedValues[k];
+                                    bestCombo.push(valueMap[val][0]); // Pick one index per value
+                                }
+                                isStraight = true;
+                            }
+                        } else if (sortedValues[end] > expectedEnd) {
+                            break;
                         }
                     }
                 }
@@ -306,8 +349,8 @@
                 });
                 // Remove from hand
                 bestCombo.forEach(idx => botHand.splice(idx, 1));
-                // Sort selected for display (optional)
-                botSelected.sort((a,b) => a.rank.localeCompare(b.rank));
+                // Sort selected for display by value
+                botSelected.sort((a,b) => a.value - b.value);
                 deck = { cards: botSelected, totalValue: bestTotal };
                 bPass = false;
                 turn = true;
