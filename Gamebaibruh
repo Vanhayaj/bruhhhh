@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -198,7 +199,7 @@
             const rank = deck.cards[0].rank;
             const count = deck.cards.length;
             const total = deck.totalValue;
-            deckEl.innerHTML = `Deck: ${count}x ${rank} (Tổng: ${total})`;
+            deckEl.innerHTML = `Deck: ${count} (Tổng: ${total})`;
         }
 
         // Kiểm tra combo hợp lệ: cùng rank hoặc thẳng tăng dần
@@ -241,11 +242,14 @@
             const selected = selectedCards.map(i => playerHand[i]);
             const totalVal = selected.reduce((sum, c) => sum + c.value, 0);
             const validCombo = isValidCombo(selected);
-            const canHit = !deck || (validCombo && totalVal >= deck.totalValue);
+            
+            const canHit = validCombo && (!deck || totalVal >= deck.totalValue);
             btn.disabled = !canHit;
             if (!validCombo) {
                 btn.textContent = 'Combo không hợp lệ';
-            } else {
+            }else if(!deck) {
+              btn.textContent = 'Hit (BẮT ĐẦU)';
+            }else {
                 btn.textContent = canHit ? 'Hit' : 'Không thể đánh (quá nhỏ)';
             }
         }
